@@ -1,26 +1,27 @@
 import streamlit as st
-import psycopg2
-import pandas as pd
+from supabase import create_client, Client
 
-# Konfiguracja połączenia z bazą Supabase
-# W Streamlit Cloud dodaj te dane w "Secrets"
+# Funkcja inicjalizująca połączenie z Supabase za pomocą URL i KEY
 def init_connection():
-    return psycopg2.connect(**st.secrets["postgres"])
+    url = st.secrets["supabase_url"]
+    key = st.secrets["supabase_key"]
+    return create_client(url, key)
 
-conn = init_connection()
+supabase = init_connection()
 
-def run_query(query, params=None, commit=False):
-    with conn.cursor() as cur:
-        cur.execute(query, params)
-        if commit:
-            conn.commit()
-            return None
-        return cur.fetchall()
+# PRZYKŁAD: Pobieranie produktów (zamiast starego run_query)
+def get_products():
+    # .table("produkty") odpowiada Twojej tabeli z obrazka
+    response = supabase.table("produkty").select("*").execute()
+    return response.data
 
-st.title("📦 System Zarządzania Produktami")
+st.title("Twoja Aplikacja")
+# Wyświetlenie danych
+dane = get_products()
+st.write(dane)
 
 # --- SEKCJA KATEGORII ---
-st.header("📂 Kategorie")
+st.header("📂 kategorie")
 
 tab1, tab2 = st.tabs(["Lista i Usuwanie", "Dodaj Nową"])
 
