@@ -10,7 +10,7 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
-# --- STYLE CSS (Tło, JASNY NIEBIESKI) ---
+# --- STYLE CSS ---
 st.markdown("""
     <style>
     .stApp {
@@ -47,7 +47,6 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
-# --- WIZUALIZACJA ---
 if prod_data:
     df = pd.DataFrame(prod_data)
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
@@ -58,8 +57,6 @@ if prod_data:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
-    
-    # Filtrowanie produktów poniżej minimum
     braki_df = df[df['liczba'] < df['stan_minimalny']].copy()
     c3.metric("⚠️ Alerty", f"{len(braki_df)} poz.")
     c4.metric("📂 Kategorie", len(kat_data))
@@ -68,7 +65,7 @@ if prod_data:
     with col_l:
         st.plotly_chart(px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii"), use_container_width=True)
     with col_r:
-        st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Twoje Minimum"), use_container_width=True)
+        st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Minimum"), use_container_width=True)
 
     st.subheader("📋 Lista Produktów")
     st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
@@ -77,7 +74,6 @@ else:
 
 st.divider()
 
-# --- OPERACJE ---
 t1, t2, t3, t4 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
 
 with t1:
@@ -85,27 +81,21 @@ with t1:
     with st.form("p_form", clear_on_submit=True):
         n = st.text_input("Nazwa produktu")
         q = st.number_input("Ilość obecna", min_value=0, step=1, value=0)
-        min_q = st.number_input("Własna wartość minimalna", min_value=0, step=1, value=0)
+        min_q = st.number_input("Ilość minimalna", min_value=0, step=1, value=0)
         p = st.number_input("Cena", min_value=0.0, step=0.1, value=0.0)
-        
-        kat_options = [k['nazwa'] for k in kat_data]
-        kat_options.append("+ Dodaj nową kategorię...")
+        kat_options = [k['nazwa'] for k in kat_data] + ["+ Dodaj nową kategorię..."]
         k_sel = st.selectbox("Wybierz kategorię", options=kat_options)
-        new_kat_input = st.text_input("Nazwa nowej kategorii (jeśli wybrano opcję powyżej)")
+        new_kat_input = st.text_input("Nazwa nowej kategorii (opcjonalnie)")
         
         if st.form_submit_button("Zapisz Produkt"):
             if n:
                 try:
-                    final_kat_id = None
                     if k_sel == "+ Dodaj nową kategorię...":
                         new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
-                        final_kat_id = new_k_res.data[0]['id']
+                        f_id = new_k_res.data[0]['id']
                     else:
-                        final_kat_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
-                    
-                    supabase.table("produkty").insert({
-                        "nazwa": n, "liczba": q, "stan_minimalny": min_q, "cena": p, "kategoria_id": final_kat_id
-                    }).execute()
+                        f_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
+                    supabase.table("produkty").insert({"nazwa": n, "liczba": q, "stan_minimalny": min_q, "cena": p, "kategoria_id": f_id}).execute()
                     st.toast(f"Dodano: {n}", icon='✅')
                     st.rerun()
                 except Exception as e: st.error(f"Błąd: {e}")
@@ -129,23 +119,34 @@ with t3:
                 supabase.table("kategorie").insert({"nazwa": nk}).execute()
                 st.rerun()
 
-# --- NOWA ZAKŁADKA: AUTOMATYCZNE ZAMÓWIENIE ---
+# --- ZAKTUALIZOWANA ZAKŁADKA Z WYŚRODKOWANIEM ---
 with t4:
-    st.subheader("🛒 Lista zakupów (Poniżej stanu minimalnego)")
+    st.subheader("🛒 Lista zakupów")
     if prod_data:
-        # Obliczamy brakującą ilość
         df['Do kupienia'] = df['stan_minimalny'] - df['liczba']
         zamowienia_df = df[df['Do kupienia'] > 0][['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'Do kupienia']].copy()
         
         if not zamowienia_df.empty:
             zamowienia_df.columns = ['Produkt', 'Kategoria', 'Obecnie', 'Minimum', 'Sugerowany zakup']
-            st.warning(f"Masz {len(zamowienia_df)} produktów wymagających uzupełnienia!")
-            st.table(zamowienia_df) # Tabela jest bardziej czytelna dla listy zakupów
             
-            # Opcja pobrania listy (do skopiowania)
+            # WYŚRODKOWANIE KOLUMN (Obecnie, Minimum, Sugerowany zakup)
+            styled_df = zamowienia_df.style.set_properties(**{
+                'text-align': 'center'
+            }, subset=['Obecnie', 'Minimum', 'Sugerowany zakup'])
+            
+            # Wymuszenie wyśrodkowania nagłówków (CSS)
+            st.markdown("""
+                <style>
+                th { text-align: center !important; }
+                </style>
+                """, unsafe_allow_html=True)
+            
+            st.warning(f"Produkty do uzupełnienia: {len(zamowienia_df)}")
+            
+            # Wyświetlamy jako dataframe (pozwala na interakcję i zachowuje style)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
             csv = zamowienia_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Pobierz listę zakupów (CSV)", csv, "zamowienie.csv", "text/csv")
+            st.download_button("📥 Pobierz listę zakupów", csv, "zamowienie.csv", "text/csv")
         else:
-            st.success("Wszystkie stany magazynowe są w normie. Brak potrzebnych zamówień! 🎉")
-    else:
-        st.write("Brak danych do analizy.")
+            st.success("Wszystkie stany w normie! 🎉")
