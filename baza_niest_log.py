@@ -10,11 +10,20 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS dla wyglądu
+# Custom CSS dla wyglądu - CZARNA CZCIONKA W KPI
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    [data-testid="stMetricValue"] { color: #1f77b4; }
+    .stMetric { 
+        background-color: #ffffff; 
+        padding: 15px; 
+        border-radius: 10px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+        border: 1px solid #eeeeee;
+    }
+    /* Wymuszenie czarnego koloru dla etykiet i wartości w st.metric */
+    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { 
+        color: #000000 !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -35,10 +44,8 @@ st.markdown("---")
 
 if prod_data:
     df = pd.DataFrame(prod_data)
-    # Przygotowanie danych i zabezpieczenie kolumn
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
     if 'stan_minimalny' not in df.columns: df['stan_minimalny'] = 5
-    if 'cena_zakupu' not in df.columns: df['cena_zakupu'] = 0.0
     df['wartosc_magazynu'] = df['liczba'] * df['cena']
     
     # --- SEKCJA 1: STATYSTYKI (KPI) ---
@@ -79,12 +86,12 @@ if prod_data:
 st.markdown("---")
 
 # --- SEKCJA 4: OPERACJE (TABS) ---
-t1, t2 = st.tabs(["🆕 Zarządzanie", "📦 Szybka Dostawa"])
+t1, t2, t3 = st.tabs(["🆕 Zarządzanie Bzą", "📦 Szybka Dostawa", "📂 Kategorie"])
 
 with t1:
     c1, c2 = st.columns(2)
     with c1:
-        with st.expander("➕ Dodaj Produkt"):
+        with st.expander("➕ Dodaj Nowy Produkt"):
             with st.form("new_p"):
                 name = st.text_input("Nazwa")
                 qty = st.number_input("Ilość", min_value=0)
@@ -92,7 +99,7 @@ with t1:
                 p_z = st.number_input("Cena zakupu", 0.0)
                 p_s = st.number_input("Cena sprzedaży", 0.0)
                 k_dict = {k['nazwa']: k['id'] for k in kat_data}
-                k_sel = st.selectbox("Kategoria", options=list(k_dict.keys()))
+                k_sel = st.selectbox("Wybierz kategorię", options=list(k_dict.keys()))
                 if st.form_submit_button("Zapisz"):
                     supabase.table("produkty").insert({
                         "nazwa": name, "liczba": qty, "stan_minimalny": min_s,
@@ -110,12 +117,30 @@ with t1:
 with t2:
     if not df.empty:
         st.write("Zwiększ stan magazynowy:")
-        p_name = st.selectbox("Wybierz produkt do uzupełnienia", options=df['nazwa'].tolist())
+        p_name = st.selectbox("Wybierz produkt", options=df['nazwa'].tolist(), key="select_delivery")
         amount = st.number_input("Ilość nowej dostawy", min_value=1)
         if st.button("Dodaj do stanu"):
-            # Bezpieczne pobranie ID i aktualnej ilości
             row = df[df['nazwa'] == p_name].iloc[0]
             new_qty = int(row['liczba']) + amount
             supabase.table("produkty").update({"liczba": new_qty}).eq("id", row['id']).execute()
-            st.success(f"Dodano {amount} szt. do produktu {p_name}")
+            st.success(f"Dodano {amount} sztuk!")
             st.rerun()
+
+with t3:
+    col_k1, col_k2 = st.columns(2)
+    with col_k1:
+        st.subheader("Aktualne Kategorie")
+        for k in kat_data:
+            st.write(f"• {k['nazwa']}")
+    with col_k2:
+        st.subheader("Dodaj Nową Kategorię")
+        with st.form("add_new_category"):
+            new_kat_name = st.text_input("Nazwa kategorii")
+            new_kat_desc = st.text_input("Opis (opcjonalnie)")
+            if st.form_submit_button("Stwórz kategorię"):
+                if new_kat_name:
+                    supabase.table("kategorie").insert({"nazwa": new_kat_name, "opis": new_kat_desc}).execute()
+                    st.success(f"Dodano kategorię: {new_kat_name}")
+                    st.rerun()
+                else:
+                    st.error("Nazwa kategorii nie może być pusta!")
