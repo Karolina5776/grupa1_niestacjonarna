@@ -2,4 +2,5 @@ streamlit
 supabase
 pandas
 plotly
-numpy
+matplotlib
+xlsxwriter
