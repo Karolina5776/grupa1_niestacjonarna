@@ -55,36 +55,37 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
-# --- SEKCJA WIZUALIZACJI (WYKRESY I STATYSTYKI) ---
+# --- SEKCJA WIZUALIZACJI ---
 if prod_data:
     df = pd.DataFrame(prod_data)
-    # Przygotowanie danych
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
     df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
     df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
+    # Pobieranie stanu minimalnego (jeśli kolumna nie istnieje w bazie, domyślnie 0)
+    df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 0), errors='coerce').fillna(0)
     
     # Statystyki KPI
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
-    c3.metric("⚠️ Alerty", len(df[df['liczba'] < 5]))
+    # Alerty bazujące na Twojej wpisanej ilości minimalnej
+    alerty = len(df[df['liczba'] < df['stan_minimalny']])
+    c3.metric("⚠️ Alerty", f"{alerty} poz.")
     c4.metric("📂 Kategorie", len(kat_data))
 
-    # WYKRESY - Teraz na pewno się wyświetlą, gdy są dane
+    # WYKRESY
     col_l, col_r = st.columns([1, 1.5])
     with col_l:
-        fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, 
-                         title="Udział kategorii", color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii")
         st.plotly_chart(fig_pie, use_container_width=True)
     with col_r:
-        fig_bar = px.bar(df, x='nazwa', y='liczba', color='kategoria_nazwa', 
-                         title="Stan magazynowy poszczególnych produktów")
+        fig_bar = px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Minimum")
         st.plotly_chart(fig_bar, use_container_width=True)
 
     st.subheader("📋 Lista Produktów")
-    st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'cena']], use_container_width=True)
+    st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
 else:
-    st.info("Magazyn jest obecnie pusty. Dodaj pierwszy produkt w zakładce poniżej! 👇")
+    st.info("Magazyn jest obecnie pusty.")
 
 st.divider()
 
@@ -95,7 +96,8 @@ with t1:
     st.subheader("Dodaj Produkt")
     with st.form("p_form"):
         n = st.text_input("Nazwa produktu")
-        q = st.number_input("Ilość", min_value=0, value=0)
+        q = st.number_input("Ilość obecna", min_value=0, value=0)
+        min_q = st.number_input("Ilość minimalna (Alert)", min_value=0, value=5) # NOWOŚĆ
         p = st.number_input("Cena", min_value=0.0, value=0.0)
         
         kat_options = [k['nazwa'] for k in kat_data]
@@ -117,8 +119,13 @@ with t1:
                 else:
                     final_kat_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
                 
+                # Zapis do bazy z uwzględnieniem stanu minimalnego
                 supabase.table("produkty").insert({
-                    "nazwa": n, "liczba": q, "cena": p, "kategoria_id": final_kat_id
+                    "nazwa": n, 
+                    "liczba": q, 
+                    "stan_minimalny": min_q, # NOWOŚĆ
+                    "cena": p, 
+                    "kategoria_id": final_kat_id
                 }).execute()
                 st.success("Dodano produkt!")
                 st.rerun()
@@ -129,7 +136,7 @@ with t2:
     if prod_data:
         p_name = st.selectbox("Wybierz produkt", options=[p['nazwa'] for p in prod_data])
         amount = st.number_input("Dodaj ilość", min_value=1)
-        if st.button("Zaktualizuj"):
+        if st.button("Zaktualizuj stan"):
             row = next(item for item in prod_data if item["nazwa"] == p_name)
             supabase.table("produkty").update({"liczba": int(row['liczba']) + amount}).eq("id", row['id']).execute()
             st.rerun()
