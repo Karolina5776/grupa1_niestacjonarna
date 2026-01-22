@@ -81,24 +81,22 @@ t1, t2, t3 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie"])
 with t1:
     st.subheader("Dodaj Nowy Produkt")
     
-    # Używamy st.form z unikalnym kluczem, co ułatwia resetowanie pól
+    # PARAMETR clear_on_submit=True czyści wszystko w momencie kliknięcia przycisku
     with st.form("p_form", clear_on_submit=True):
         n = st.text_input("Nazwa produktu")
-        q = st.number_input("Ilość obecna", min_value=0, step=1)
-        min_q = st.number_input("Ilość minimalna (Alert)", min_value=0, value=5)
-        p = st.number_input("Cena", min_value=0.0, step=0.01)
+        q = st.number_input("Ilość obecna", min_value=0, step=1, value=0)
+        min_q = st.number_input("Ilość minimalna (Alert)", min_value=0, step=1, value=5)
+        p = st.number_input("Cena", min_value=0.0, step=0.1, value=0.0)
         
         kat_options = [k['nazwa'] for k in kat_data]
         kat_options.append("+ Dodaj nową kategorię...")
         k_sel = st.selectbox("Wybierz kategorię", options=kat_options)
         
-        new_kat_input = st.text_input("Nazwa nowej kategorii (opcjonalnie)")
+        new_kat_input = st.text_input("Nazwa nowej kategorii (jeśli wybrano opcję powyżej)")
         
-        submit = st.form_submit_button("Zapisz Produkt")
-        
-        if submit:
+        if st.form_submit_button("Zapisz Produkt"):
             if not n:
-                st.error("Nazwa produktu nie może być pusta!")
+                st.warning("Musisz podać nazwę produktu!")
             else:
                 try:
                     final_kat_id = None
@@ -107,7 +105,7 @@ with t1:
                             new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
                             final_kat_id = new_k_res.data[0]['id']
                         else:
-                            st.error("Podaj nazwę nowej kategorii!")
+                            st.error("Wpisz nazwę dla nowej kategorii!")
                             st.stop()
                     else:
                         final_kat_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
@@ -117,9 +115,7 @@ with t1:
                         "cena": p, "kategoria_id": final_kat_id
                     }).execute()
                     
-                    st.success(f"Dodano produkt: {n}")
-                    # Po sukcesie odświeżamy aplikację, aby pobrać nowe dane. 
-                    # clear_on_submit=True wyczyści formularz przed odświeżeniem.
+                    st.toast(f"Pomyślnie dodano: {n}", icon='✅')
                     st.rerun()
                 except Exception as e:
                     st.error(f"Błąd bazy: {e}")
@@ -128,16 +124,18 @@ with t2:
     if prod_data:
         with st.form("delivery_form", clear_on_submit=True):
             p_name = st.selectbox("Wybierz produkt", options=[p['nazwa'] for p in prod_data])
-            amount = st.number_input("Dodaj ilość", min_value=1, step=1)
+            amount = st.number_input("Dodaj ilość", min_value=1, step=1, value=1)
             if st.form_submit_button("Aktualizuj stan"):
                 row = next(item for item in prod_data if item["nazwa"] == p_name)
                 supabase.table("produkty").update({"liczba": int(row['liczba']) + amount}).eq("id", row['id']).execute()
+                st.toast("Stan magazynowy zaktualizowany!", icon='🚚')
                 st.rerun()
 
 with t3:
     with st.form("k_form_standalone", clear_on_submit=True):
-        nk = st.text_input("Nowa kategoria")
+        nk = st.text_input("Szybkie dodawanie kategorii")
         if st.form_submit_button("Dodaj"):
             if nk:
                 supabase.table("kategorie").insert({"nazwa": nk}).execute()
+                st.toast(f"Dodano kategorię: {nk}", icon='📂')
                 st.rerun()
