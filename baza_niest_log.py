@@ -8,9 +8,9 @@ url = st.secrets["supabase_url"]
 key = st.secrets["supabase_key"]
 supabase: Client = create_client(url, key)
 
-st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
-# --- STYLE CSS ---
+# --- STYLE CSS (Tło, Czerwony Tytuł, Panele) ---
 st.markdown("""
     <style>
     .stApp {
@@ -19,7 +19,7 @@ st.markdown("""
         background-size: cover;
         background-attachment: fixed;
     }
-    h1 { color: #ff0000 !important; font-weight: bold; }
+    h1 { color: #ff0000 !important; font-weight: bold; text-align: center; }
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
         padding: 15px; border-radius: 10px; border: 1px solid #cccccc;
@@ -31,11 +31,11 @@ st.markdown("""
 
 def get_data():
     try:
-        prod = supabase.table("produkty").select("*, kategorie(nazwa)").execute()
-        kat = supabase.table("kategorie").select("*").execute()
-        return prod.data, kat.data
+        p_res = supabase.table("produkty").select("*, kategorie(nazwa)").execute()
+        k_res = supabase.table("kategorie").select("*").execute()
+        return p_res.data, k_res.data
     except Exception as e:
-        st.error(f"Błąd pobierania danych: {e}")
+        st.error(f"Problem z połączeniem: {e}")
         return [], []
 
 prod_data, kat_data = get_data()
@@ -43,78 +43,87 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
+# --- SEKCJA WIZUALIZACJI (WYKRESY I TABELA) ---
 if prod_data:
     df = pd.DataFrame(prod_data)
+    # Zabezpieczenie danych
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
-    if 'stan_minimalny' not in df.columns: df['stan_minimalny'] = 5
-    # Przeliczanie wartości z zabezpieczeniem przed None
-    df['cena'] = pd.to_numeric(df['cena']).fillna(0)
-    df['liczba'] = pd.to_numeric(df['liczba']).fillna(0)
-    df['wartosc_magazynu'] = df['liczba'] * df['cena']
+    df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
+    df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
+    df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 5), errors='coerce').fillna(5)
     
     # KPI
-    m1, m2, m3, m4 = st.columns(4)
-    with m1: st.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
-    with m2: st.metric("💰 Wartość", f"{round(df['wartosc_magazynu'].sum(), 2)} zł")
-    with m3: 
-        niskie = len(df[df['liczba'] < df['stan_minimalny']])
-        st.metric("⚠️ Niskie Stany", f"{niskie} poz.")
-    with m4: st.metric("📂 Kategorie", len(kat_data))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
+    c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
+    c3.metric("⚠️ Alerty", len(df[df['liczba'] < df['stan_minimalny']]))
+    c4.metric("📂 Kategorie", len(kat_data))
 
-    # TABELA
-    st.subheader("📋 Zestawienie Produktów")
+    # WYKRESY
+    col_l, col_r = st.columns([1, 1.5])
+    with col_l:
+        fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii (%)")
+        st.plotly_chart(fig_pie, use_container_width=True)
+    with col_r:
+        fig_bar = px.bar(df, x='nazwa', y='liczba', color='kategoria_nazwa', title="Stan sztuk na magazynie")
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.subheader("📋 Lista Produktów")
     st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
+else:
+    st.info("Magazyn jest pusty. Dodaj pierwszą kategorię i produkt w sekcji poniżej. 👇")
 
 st.divider()
 
-# OPERACJE
-t1, t2, t3 = st.tabs(["🆕 Produkty", "📦 Dostawa", "📂 Kategorie"])
-
-with t1:
-    with st.expander("➕ Dodaj Nowy Produkt"):
-        with st.form("form_p"):
-            n = st.text_input("Nazwa produktu")
-            q = st.number_input("Ilość początkowa", min_value=0, value=0)
-            ms = st.number_input("Stan minimalny", min_value=0, value=5)
-            p = st.number_input("Cena sprzedaży", min_value=0.0, value=0.0)
-            
-            k_dict = {k['nazwa']: k['id'] for k in kat_data}
-            k_sel = st.selectbox("Wybierz kategorię", options=list(k_dict.keys()))
-            
-            if st.form_submit_button("Zatwierdź i Dodaj"):
-                try:
-                    # UWAGA: Upewnij się, że nazwy kolumn poniżej są identyczne jak w Supabase!
-                    response = supabase.table("produkty").insert({
-                        "nazwa": n, 
-                        "liczba": q, 
-                        "stan_minimalny": ms, 
-                        "cena": p, 
-                        "kategoria_id": k_dict[k_sel]
-                    }).execute()
-                    st.success(f"Dodano produkt: {n}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Błąd bazy danych: {e}")
-
-with t2:
-    if not df.empty:
-        p_name = st.selectbox("Wybierz produkt", options=df['nazwa'].tolist())
-        amount = st.number_input("Dodaj sztuk", min_value=1, value=1)
-        if st.button("Zaktualizuj stan"):
-            row = df[df['nazwa'] == p_name].iloc[0]
-            new_qty = int(row['liczba']) + amount
-            supabase.table("produkty").update({"liczba": new_qty}).eq("id", row['id']).execute()
-            st.success("Zaktualizowano stan!")
-            st.rerun()
+# --- SEKCJA OPERACJI (ZAWSZE WIDOCZNA) ---
+t1, t2, t3 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie"])
 
 with t3:
-    with st.form("form_k"):
-        nk = st.text_input("Nowa kategoria")
-        if st.form_submit_button("Dodaj kategorię"):
-            if nk:
+    st.subheader("Zarządzaj Kategoriami")
+    with st.form("k_form"):
+        new_k = st.text_input("Nazwa nowej kategorii")
+        if st.form_submit_button("Dodaj Kategorię"):
+            if new_k:
+                supabase.table("kategorie").insert({"nazwa": new_k}).execute()
+                st.success(f"Dodano kategorię: {new_k}")
+                st.rerun()
+
+with t1:
+    st.subheader("Dodaj Nowy Produkt")
+    if not kat_data:
+        st.warning("Najpierw dodaj przynajmniej jedną kategorię!")
+    else:
+        with st.form("p_form"):
+            n = st.text_input("Nazwa produktu")
+            q = st.number_input("Ilość", min_value=0, value=0)
+            ms = st.number_input("Stan min.", min_value=0, value=5)
+            p = st.number_input("Cena", min_value=0.0, value=0.0)
+            
+            k_map = {k['nazwa']: k['id'] for k in kat_data}
+            k_sel = st.selectbox("Kategoria", options=list(k_map.keys()))
+            
+            if st.form_submit_button("Zapisz Produkt"):
                 try:
-                    supabase.table("kategorie").insert({"nazwa": nk}).execute()
-                    st.success(f"Dodano kategorię: {nk}")
+                    supabase.table("produkty").insert({
+                        "nazwa": n, "liczba": q, "stan_minimalny": ms, 
+                        "cena": p, "kategoria_id": k_map[k_sel]
+                    }).execute()
+                    st.success("Produkt dodany!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Błąd: {e}")
+                    st.error(f"Błąd bazy: {e}")
+
+with t2:
+    st.subheader("Szybka Dostawa")
+    if prod_data:
+        df_tmp = pd.DataFrame(prod_data)
+        p_name = st.selectbox("Wybierz produkt", options=df_tmp['nazwa'].tolist())
+        amount = st.number_input("Ile sztuk dojechało?", min_value=1)
+        if st.button("Dodaj do stanu"):
+            row = df_tmp[df_tmp['nazwa'] == p_name].iloc[0]
+            new_q = int(row['liczba']) + amount
+            supabase.table("produkty").update({"liczba": new_q}).eq("id", row['id']).execute()
+            st.success("Zaktualizowano!")
+            st.rerun()
+    else:
+        st.write("Brak produktów w bazie.")
