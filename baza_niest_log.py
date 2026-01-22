@@ -20,31 +20,24 @@ st.markdown("""
         background-attachment: fixed;
     }
     
-    /* KOLOR JASNONIEBIESKI (DodgerBlue) */
-    html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, label, .stMetric {
+    html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, label {
         color: #1E90FF !important;
         font-weight: bold;
     }
     
-    /* Karty KPI - ramka i tekst jasnoniebieski */
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
         padding: 15px; border-radius: 10px; border: 2px solid #1E90FF;
     }
     
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { 
-        color: #1E90FF !important; 
-    }
+    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #1E90FF !important; }
 
-    /* Tło dla paneli i zakładki */
     .stExpander { 
         background-color: rgba(255, 255, 255, 0.9) !important; 
         border: 1px solid #1E90FF !important; 
     }
     
-    button[data-baseweb="tab"] p {
-        color: #1E90FF !important;
-    }
+    button[data-baseweb="tab"] p { color: #1E90FF !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -62,27 +55,40 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
-# --- WIZUALIZACJA ---
+# --- SEKCJA WIZUALIZACJI (WYKRESY I STATYSTYKI) ---
 if prod_data:
     df = pd.DataFrame(prod_data)
+    # Przygotowanie danych
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
     df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
     df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
     
+    # Statystyki KPI
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
     c3.metric("⚠️ Alerty", len(df[df['liczba'] < 5]))
     c4.metric("📂 Kategorie", len(kat_data))
 
+    # WYKRESY - Teraz na pewno się wyświetlą, gdy są dane
+    col_l, col_r = st.columns([1, 1.5])
+    with col_l:
+        fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, 
+                         title="Udział kategorii", color_discrete_sequence=px.colors.qualitative.Pastel)
+        st.plotly_chart(fig_pie, use_container_width=True)
+    with col_r:
+        fig_bar = px.bar(df, x='nazwa', y='liczba', color='kategoria_nazwa', 
+                         title="Stan magazynowy poszczególnych produktów")
+        st.plotly_chart(fig_bar, use_container_width=True)
+
     st.subheader("📋 Lista Produktów")
     st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'cena']], use_container_width=True)
 else:
-    st.info("Magazyn jest pusty.")
+    st.info("Magazyn jest obecnie pusty. Dodaj pierwszy produkt w zakładce poniżej! 👇")
 
 st.divider()
 
-# --- OPERACJE ---
+# --- SEKCJA OPERACJI ---
 t1, t2, t3 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie"])
 
 with t1:
@@ -101,7 +107,6 @@ with t1:
         if st.form_submit_button("Zapisz Produkt"):
             try:
                 final_kat_id = None
-                
                 if k_sel == "+ Dodaj nową kategorię...":
                     if new_kat_input:
                         new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
@@ -115,15 +120,14 @@ with t1:
                 supabase.table("produkty").insert({
                     "nazwa": n, "liczba": q, "cena": p, "kategoria_id": final_kat_id
                 }).execute()
-                
-                st.success("Dodano pomyślnie!")
+                st.success("Dodano produkt!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Błąd: {e}")
 
 with t2:
     if prod_data:
-        p_name = st.selectbox("Produkt", options=[p['nazwa'] for p in prod_data])
+        p_name = st.selectbox("Wybierz produkt", options=[p['nazwa'] for p in prod_data])
         amount = st.number_input("Dodaj ilość", min_value=1)
         if st.button("Zaktualizuj"):
             row = next(item for item in prod_data if item["nazwa"] == p_name)
