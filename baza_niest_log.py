@@ -19,28 +19,22 @@ st.markdown("""
         background-size: cover;
         background-attachment: fixed;
     }
-    
     h1 {
         color: #ff0000 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
         font-weight: bold;
     }
-
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
-        padding: 15px; 
-        border-radius: 10px; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-        border: 1px solid #cccccc;
+        padding: 15px; border-radius: 10px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #cccccc;
     }
     [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { 
         color: #000000 !important; 
     }
-
     .stExpander {
         background-color: rgba(255, 255, 255, 0.9) !important;
-        border-radius: 10px !important;
-        border: 1px solid #ddd !important;
+        border-radius: 10px !important; border: 1px solid #ddd !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -59,7 +53,6 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
-# --- POPRAWIONE WCIĘCIA (INDENTATION) ---
 if prod_data:
     df = pd.DataFrame(prod_data)
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
@@ -67,9 +60,29 @@ if prod_data:
         df['stan_minimalny'] = 5
     df['wartosc_magazynu'] = df['liczba'] * df['cena']
     
-    # SEKCJA 1: KPI
+    # SEKCJA 1: KPI (Poprawione formatowanie, aby uniknąć błędów)
     m1, m2, m3, m4 = st.columns(4)
     with m1: 
-        st.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
+        total_qty = int(df['liczba'].sum())
+        st.metric("📦 Suma Produktów", f"{total_qty} szt.")
     with m2: 
-        st.metric("💰 Wartość Całkowita", f"{df['wartosc_magazynu'].sum():,.2f
+        total_val = round(df['wartosc_magazynu'].sum(), 2)
+        st.metric("💰 Wartość", f"{total_val} zł")
+    with m3: 
+        niskie = len(df[df['liczba'] < df['stan_minimalny']])
+        st.metric("⚠️ Niskie Stany", f"{niskie} poz.")
+    with m4: 
+        st.metric("📂 Kategorie", len(kat_data))
+
+    # SEKCJA 2: WYKRESY
+    c1, c2 = st.columns([1, 1.5])
+    with c1:
+        st.subheader("Udział kategorii (%)")
+        st.plotly_chart(px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.5), use_container_width=True)
+    with c2:
+        st.subheader("Stan obecny vs Minimalny")
+        st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group'), use_container_width=True)
+
+    # SEKCJA 3: TABELA
+    st.subheader("📋 Zestawienie Produktów")
+    display_df = df
