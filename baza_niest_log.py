@@ -10,22 +10,48 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
-# --- STYLE CSS (Tło, Czerwony Tytuł, Panele) ---
+# --- STYLE CSS (Tło, Niebieskie Czcionki) ---
 st.markdown("""
     <style>
+    /* Główne tło */
     .stApp {
         background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), 
                     url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop');
         background-size: cover;
         background-attachment: fixed;
     }
-    h1 { color: #ff0000 !important; font-weight: bold; text-align: center; }
+    
+    /* WSZYSTKIE CZCIONKI NA NIEBIESKO */
+    html, body, [class*="st-"] {
+        color: #0000FF !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6, p, label {
+        color: #0000FF !important;
+        font-weight: bold;
+    }
+
+    /* Karty KPI - ramka i tekst niebieski */
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
-        padding: 15px; border-radius: 10px; border: 1px solid #cccccc;
+        padding: 15px; border-radius: 10px; border: 2px solid #0000FF;
     }
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #000000 !important; }
-    .stExpander { background-color: rgba(255, 255, 255, 0.9) !important; border-radius: 10px; }
+    
+    /* Wartości i etykiety w KPI */
+    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { 
+        color: #0000FF !important; 
+    }
+
+    /* Napisy w zakładkach (Tabs) */
+    button[data-baseweb="tab"] p {
+        color: #0000FF !important;
+    }
+    
+    /* Pasek boczny i expandery */
+    .stExpander { 
+        background-color: rgba(255, 255, 255, 0.9) !important; 
+        border: 1px solid #0000FF !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,16 +69,15 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
-# --- SEKCJA WIZUALIZACJI (WYKRESY I TABELA) ---
+# --- SEKCJA WIZUALIZACJI ---
 if prod_data:
     df = pd.DataFrame(prod_data)
-    # Zabezpieczenie danych
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
     df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
     df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
     df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 5), errors='coerce').fillna(5)
     
-    # KPI
+    # KPI - Teraz będą niebieskie dzięki CSS
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
@@ -65,65 +90,56 @@ if prod_data:
         fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii (%)")
         st.plotly_chart(fig_pie, use_container_width=True)
     with col_r:
-        fig_bar = px.bar(df, x='nazwa', y='liczba', color='kategoria_nazwa', title="Stan sztuk na magazynie")
+        fig_bar = px.bar(df, x='nazwa', y='liczba', color='kategoria_nazwa', title="Stan na magazynie")
         st.plotly_chart(fig_bar, use_container_width=True)
 
     st.subheader("📋 Lista Produktów")
     st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
 else:
-    st.info("Magazyn jest pusty. Dodaj pierwszą kategorię i produkt w sekcji poniżej. 👇")
+    st.info("Magazyn jest pusty. Dodaj dane poniżej.")
 
 st.divider()
 
-# --- SEKCJA OPERACJI (ZAWSZE WIDOCZNA) ---
+# --- SEKCJA OPERACJI ---
 t1, t2, t3 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie"])
 
 with t3:
-    st.subheader("Zarządzaj Kategoriami")
+    st.subheader("Dodaj Kategorię")
     with st.form("k_form"):
         new_k = st.text_input("Nazwa nowej kategorii")
         if st.form_submit_button("Dodaj Kategorię"):
             if new_k:
                 supabase.table("kategorie").insert({"nazwa": new_k}).execute()
-                st.success(f"Dodano kategorię: {new_k}")
+                st.success(f"Dodano: {new_k}")
                 st.rerun()
 
 with t1:
-    st.subheader("Dodaj Nowy Produkt")
+    st.subheader("Dodaj Produkt")
     if not kat_data:
-        st.warning("Najpierw dodaj przynajmniej jedną kategorię!")
+        st.warning("Najpierw dodaj kategorię!")
     else:
         with st.form("p_form"):
             n = st.text_input("Nazwa produktu")
             q = st.number_input("Ilość", min_value=0, value=0)
             ms = st.number_input("Stan min.", min_value=0, value=5)
             p = st.number_input("Cena", min_value=0.0, value=0.0)
-            
             k_map = {k['nazwa']: k['id'] for k in kat_data}
             k_sel = st.selectbox("Kategoria", options=list(k_map.keys()))
-            
             if st.form_submit_button("Zapisz Produkt"):
-                try:
-                    supabase.table("produkty").insert({
-                        "nazwa": n, "liczba": q, "stan_minimalny": ms, 
-                        "cena": p, "kategoria_id": k_map[k_sel]
-                    }).execute()
-                    st.success("Produkt dodany!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Błąd bazy: {e}")
+                supabase.table("produkty").insert({
+                    "nazwa": n, "liczba": q, "stan_minimalny": ms, 
+                    "cena": p, "kategoria_id": k_map[k_sel]
+                }).execute()
+                st.rerun()
 
 with t2:
     st.subheader("Szybka Dostawa")
     if prod_data:
-        df_tmp = pd.DataFrame(prod_data)
-        p_name = st.selectbox("Wybierz produkt", options=df_tmp['nazwa'].tolist())
-        amount = st.number_input("Ile sztuk dojechało?", min_value=1)
-        if st.button("Dodaj do stanu"):
-            row = df_tmp[df_tmp['nazwa'] == p_name].iloc[0]
+        p_list = [p['nazwa'] for p in prod_data]
+        p_name = st.selectbox("Wybierz produkt", options=p_list)
+        amount = st.number_input("Dodaj sztuk", min_value=1)
+        if st.button("Aktualizuj stan"):
+            row = next(item for item in prod_data if item["nazwa"] == p_name)
             new_q = int(row['liczba']) + amount
             supabase.table("produkty").update({"liczba": new_q}).eq("id", row['id']).execute()
-            st.success("Zaktualizowano!")
             st.rerun()
-    else:
-        st.write("Brak produktów w bazie.")
