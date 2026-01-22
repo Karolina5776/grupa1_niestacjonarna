@@ -3,12 +3,20 @@ from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
 
-# 1. KONFIGURACJA POŁĄCZENIA
+# 1. KONFIGURACJA
 url = st.secrets["supabase_url"]
 key = st.secrets["supabase_key"]
 supabase: Client = create_client(url, key)
 
-st.set_page_config(page_title="Magazyn Finanse Pro", layout="wide")
+st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide", initial_sidebar_state="collapsed")
+
+# Custom CSS dla lepszego wyglądu
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
 def get_data():
     try:
@@ -16,103 +24,105 @@ def get_data():
         kat = supabase.table("kategorie").select("*").execute()
         return prod.data, kat.data
     except Exception as e:
-        st.error(f"Błąd pobierania danych: {e}")
+        st.error(f"Błąd bazy: {e}")
         return [], []
 
 prod_data, kat_data = get_data()
 
-st.title("💰 Inteligentny Magazyn z Analizą Zysków")
+# --- HEADER ---
+st.title("📊 Panel Analityczny Magazynu")
+st.markdown("---")
 
-# --- SEKCJA 1: ALERTY I ZAMÓWIENIA ---
 if prod_data:
     df = pd.DataFrame(prod_data)
-    
-    # Zabezpieczenia kolumn
-    if 'stan_minimalny' not in df.columns: df['stan_minimalny'] = 5
-    if 'cena_zakupu' not in df.columns: df['cena_zakupu'] = 0.0
-    
-    df['cena_zakupu'] = pd.to_numeric(df['cena_zakupu']).fillna(0)
-    df['cena'] = pd.to_numeric(df['cena']).fillna(0)
-    df['liczba'] = pd.to_numeric(df['liczba']).fillna(0)
-    
-    df_low = df[df['liczba'] < df['stan_minimalny']].copy()
-    
-    if not df_low.empty:
-        st.warning(f"🚨 Produkty wymagające uzupełnienia: {len(df_low)}")
-        with st.expander("Otwórz panel szybkich dostaw"):
-            cols = st.columns(3)
-            for idx, row in df_low.reset_index().iterrows():
-                with cols[idx % 3]:
-                    st.write(f"**{row['nazwa']}**")
-                    st.caption(f"Stan: {int(row['liczba'])} / Min: {int(row['stan_minimalny'])}")
-                    # POPRAWIONA LINIA:
-                    add_qty = st.number_input("Ilość dostawy", min_value=1, value=10, key=f"input_{row['id']}")
-                    if st.button("Zatwierdź", key=f"btn_order_{row['id']}"):
-                        new_total = row['liczba'] + add_qty
-                        supabase.table("produkty").update({"liczba": new_total}).eq("id", row['id']).execute()
-                        st.success(f"Dodano {add_qty} sztuk!")
-                        st.rerun()
-
-st.divider()
-
-# --- SEKCJA 2: ANALITYKA FINANSOWA ---
-if prod_data:
+    # Przygotowanie danych
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
-    df['marza_jednostkowa'] = df['cena'] - df['cena_zakupu']
-    df['marza_procentowa'] = df.apply(lambda x: (x['marza_jednostkowa'] / x['cena'] * 100) if x['cena'] > 0 else 0, axis=1)
     df['wartosc_magazynu'] = df['liczba'] * df['cena']
-    df['potencjalny_zysk'] = df['liczba'] * df['marza_jednostkowa']
-
-    st.subheader("📊 Wyniki Finansowe")
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Wartość (Sprzedaż)", f"{df['wartosc_magazynu'].sum():,.2f} zł")
-    kpi2.metric("Potencjalny zysk", f"{df['potencjalny_zysk'].sum():,.2f} zł")
-    kpi3.metric("Średnia marża", f"{df['marza_procentowa'].mean():.1f}%")
-
-    c_chart1, c_chart2 = st.columns(2)
-    with c_chart1:
-        st.plotly_chart(px.pie(df, values='wartosc_magazynu', names='kategoria_nazwa', title="Wartość wg kategorii"), use_container_width=True)
-    with c_chart2:
-        st.plotly_chart(px.bar(df, x='nazwa', y='marza_procentowa', color='marza_procentowa', title="Rentowność (%)", color_continuous_scale="RdYlGn"), use_container_width=True)
-
-st.divider()
-
-# --- SEKCJA 3: ZARZĄDZANIE ---
-tab_p, tab_k = st.tabs(["🛒 Produkty", "📂 Kategorie"])
-
-with tab_p:
-    st.dataframe(df[['id', 'nazwa', 'liczba', 'stan_minimalny', 'cena_zakupu', 'cena', 'marza_procentowa']], use_container_width=True)
     
-    c_add, c_del = st.columns(2)
-    with c_add:
-        with st.expander("➕ Dodaj nowy produkt"):
-            with st.form("new_prod"):
-                n = st.text_input("Nazwa")
-                l = st.number_input("Ilość", min_value=0)
-                sm = st.number_input("Stan minimalny", min_value=0, value=5)
-                cz = st.number_input("Cena zakupu", min_value=0.0)
-                cs = st.number_input("Cena sprzedaży", min_value=0.0)
-                k_opt = {k['nazwa']: k['id'] for k in kat_data}
-                k_sel = st.selectbox("Kategoria", options=list(k_opt.keys()))
-                if st.form_submit_button("Zapisz"):
-                    supabase.table("produkty").insert({"nazwa": n, "liczba": l, "stan_minimalny": sm, "cena_zakupu": cz, "cena": cs, "kategoria_id": k_opt[k_sel]}).execute()
-                    st.rerun()
-    with c_del:
-        with st.expander("🗑️ Usuń produkt"):
-            p_list = df['nazwa'].tolist() if not df.empty else []
-            p_to_del = st.selectbox("Wybierz do usunięcia", options=p_list)
-            if st.button("Usuń produkt"):
-                supabase.table("produkty").delete().eq("nazwa", p_to_del).execute()
-                st.rerun()
+    # --- SEKCJA 1: KPI ---
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: st.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
+    with m2: st.metric("💰 Wartość Całkowita", f"{df['wartosc_magazynu'].sum():,.2f} zł")
+    with m3: 
+        niskie_stany = len(df[df['liczba'] < df.get('stan_minimalny', 5)])
+        st.metric("⚠️ Alerty", f"{niskie_stany} poz.", delta_color="inverse")
+    with m4: st.metric("📂 Kategorie", len(kat_data))
 
-with tab_k:
-    ck1, ck2 = st.columns(2)
-    with ck1:
-        st.write("### Kategorie")
-        for k in kat_data: st.write(f"- {k['nazwa']}")
-    with ck2:
-        with st.form("new_kat"):
-            nk = st.text_input("Nazwa kategorii")
-            if st.form_submit_button("Dodaj"):
-                supabase.table("kategorie").insert({"nazwa": nk}).execute()
-                st.rerun()
+    # --- SEKCJA 2: WYKRESY ---
+    col_chart1, col_chart2 = st.columns([1, 1.5])
+
+    with col_chart1:
+        st.subheader("Udział procentowy kategorii")
+        # Wykres Donut dla procentów
+        fig_pie = px.pie(df, values='liczba', names='kategoria_nazwa', 
+                         hole=0.5, 
+                         color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_chart2:
+        st.subheader("Stany vs Cele Minimalne")
+        fig_bar = px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], 
+                         barmode='group',
+                         title="Ilość obecna a wymagane minimum",
+                         color_discrete_map={'liczba': '#00CC96', 'stan_minimalny': '#EF553B'})
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- SEKCJA 3: ATRAKCYJNA TABELA ---
+    st.subheader("📋 Pełne Zestawienie Produktów")
+    
+    # Tworzymy ładniejszy widok tabeli
+    display_df = df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']].copy()
+    display_df.columns = ['Produkt', 'Kategoria', 'Stan', 'Min. Stan', 'Cena (zł)']
+    
+    # Dodajemy wizualny pasek postępu (stan / 100 jako przykład)
+    st.dataframe(
+        display_df.style.background_gradient(subset=['Stan'], cmap='YlGn')
+        .format({'Cena (zł)': '{:.2f}'}),
+        use_container_width=True,
+        height=400
+    )
+
+st.markdown("---")
+
+# --- SEKCJA 4: OPERACJE ---
+t1, t2 = st.tabs(["🆕 Zarządzanie Bzą", "📦 Szybka Dostawa"])
+
+with t1:
+    c1, c2 = st.columns(2)
+    with c1:
+        with st.expander("➕ Dodaj Nowy Produkt"):
+            with st.form("new_p"):
+                name = st.text_input("Nazwa")
+                col_sub1, col_sub2 = st.columns(2)
+                with col_sub1:
+                    qty = st.number_input("Ilość", min_value=0)
+                    min_s = st.number_input("Stan min.", value=5)
+                with col_sub2:
+                    price_z = st.number_input("Cena zakupu", 0.0)
+                    price_s = st.number_input("Cena sprzedaży", 0.0)
+                
+                k_dict = {k['nazwa']: k['id'] for k in kat_data}
+                k_sel = st.selectbox("Wybierz kategorię", options=list(k_dict.keys()))
+                
+                if st.form_submit_button("Zapisz w magazynie"):
+                    supabase.table("produkty").insert({
+                        "nazwa": name, "liczba": qty, "stan_minimalny": min_s,
+                        "cena_zakupu": price_z, "cena": price_s, "kategoria_id": k_dict[k_sel]
+                    }).execute()
+                    st.rerun()
+    with c2:
+        with st.expander("📂 Dodaj Nową Kategorię"):
+            with st.form("new_k"):
+                nk = st.text_input("Nazwa kategorii")
+                if st.form_submit_button("Stwórz kategorię"):
+                    supabase.table("kategorie").insert({"nazwa": nk}).execute()
+                    st.rerun()
+
+with t2:
+    if prod_data:
+        st.write("Wyszukaj i uzupełnij towar:")
+        p_name = st.selectbox("Produkt", options=df['nazwa'].tolist())
+        amount = st.number_input("Ile sztuk dojechało?", min_value=1)
+        if st.button("Zatwierdź dostawę"):
+            current_q = df[df['nazwa
