@@ -10,10 +10,9 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide", initial_sidebar_state="collapsed")
 
-# --- NAPRAWIONA SEKCJA CSS ---
+# --- STYLE CSS (Tło, Czerwony Tytuł, Panele) ---
 st.markdown("""
     <style>
-    /* Główne tło aplikacji */
     .stApp {
         background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), 
                     url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop');
@@ -21,14 +20,12 @@ st.markdown("""
         background-attachment: fixed;
     }
     
-    /* Nagłówek na czerwono */
     h1 {
         color: #ff0000 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
         font-weight: bold;
     }
 
-    /* Karty KPI - białe tło, czarna czcionka */
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
         padding: 15px; 
@@ -40,7 +37,6 @@ st.markdown("""
         color: #000000 !important; 
     }
 
-    /* Tło dla paneli dodawania (Expanderów) */
     .stExpander {
         background-color: rgba(255, 255, 255, 0.9) !important;
         border-radius: 10px !important;
@@ -63,4 +59,17 @@ prod_data, kat_data = get_data()
 st.title("🏭 System Zarządzania Magazynem")
 st.markdown("---")
 
+# --- POPRAWIONE WCIĘCIA (INDENTATION) ---
 if prod_data:
+    df = pd.DataFrame(prod_data)
+    df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
+    if 'stan_minimalny' not in df.columns: 
+        df['stan_minimalny'] = 5
+    df['wartosc_magazynu'] = df['liczba'] * df['cena']
+    
+    # SEKCJA 1: KPI
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: 
+        st.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
+    with m2: 
+        st.metric("💰 Wartość Całkowita", f"{df['wartosc_magazynu'].sum():,.2f
