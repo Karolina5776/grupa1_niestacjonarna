@@ -10,7 +10,7 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
-# --- STYLE CSS (Tło, Niebieskie Czcionki) ---
+# --- STYLE CSS (Tło, JASNY NIEBIESKI) ---
 st.markdown("""
     <style>
     .stApp {
@@ -19,17 +19,32 @@ st.markdown("""
         background-size: cover;
         background-attachment: fixed;
     }
-    html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, label {
-        color: #0000FF !important;
+    
+    /* KOLOR JASNONIEBIESKI (DodgerBlue) */
+    html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, label, .stMetric {
+        color: #1E90FF !important;
         font-weight: bold;
     }
+    
+    /* Karty KPI - ramka i tekst jasnoniebieski */
     .stMetric { 
         background-color: rgba(255, 255, 255, 0.95) !important; 
-        padding: 15px; border-radius: 10px; border: 2px solid #0000FF;
+        padding: 15px; border-radius: 10px; border: 2px solid #1E90FF;
     }
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #0000FF !important; }
-    .stExpander { background-color: rgba(255, 255, 255, 0.9) !important; border: 1px solid #0000FF !important; }
-    button[data-baseweb="tab"] p { color: #0000FF !important; }
+    
+    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { 
+        color: #1E90FF !important; 
+    }
+
+    /* Tło dla paneli i zakładki */
+    .stExpander { 
+        background-color: rgba(255, 255, 255, 0.9) !important; 
+        border: 1px solid #1E90FF !important; 
+    }
+    
+    button[data-baseweb="tab"] p {
+        color: #1E90FF !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -77,43 +92,39 @@ with t1:
         q = st.number_input("Ilość", min_value=0, value=0)
         p = st.number_input("Cena", min_value=0.0, value=0.0)
         
-        # Opcje kategorii z możliwością dodania nowej
         kat_options = [k['nazwa'] for k in kat_data]
         kat_options.append("+ Dodaj nową kategorię...")
         k_sel = st.selectbox("Wybierz kategorię", options=kat_options)
         
-        # Pole na nową kategorię (pojawi się tylko jeśli wybrano "+" w selectboxie)
-        new_kat_name = st.text_input("Wpisz nazwę nowej kategorii (jeśli wybrano opcję powyżej)")
+        new_kat_input = st.text_input("Nazwa nowej kategorii (jeśli wybrano opcję powyżej)")
         
         if st.form_submit_button("Zapisz Produkt"):
             try:
                 final_kat_id = None
                 
-                # Logika dodawania nowej kategorii w locie
                 if k_sel == "+ Dodaj nową kategorię...":
-                    if new_kat_name:
-                        new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_name}).execute()
+                    if new_kat_input:
+                        new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
                         final_kat_id = new_k_res.data[0]['id']
                     else:
-                        st.error("Proszę wpisać nazwę nowej kategorii!")
+                        st.error("Wpisz nazwę nowej kategorii!")
                         st.stop()
                 else:
                     final_kat_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
                 
-                # Dodanie produktu
                 supabase.table("produkty").insert({
                     "nazwa": n, "liczba": q, "cena": p, "kategoria_id": final_kat_id
                 }).execute()
                 
-                st.success("Produkt dodany!")
+                st.success("Dodano pomyślnie!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Błąd: {e}")
 
 with t2:
     if prod_data:
-        p_name = st.selectbox("Wybierz produkt", options=[p['nazwa'] for p in prod_data])
-        amount = st.number_input("Dodaj sztuk", min_value=1)
+        p_name = st.selectbox("Produkt", options=[p['nazwa'] for p in prod_data])
+        amount = st.number_input("Dodaj ilość", min_value=1)
         if st.button("Zaktualizuj"):
             row = next(item for item in prod_data if item["nazwa"] == p_name)
             supabase.table("produkty").update({"liczba": int(row['liczba']) + amount}).eq("id", row['id']).execute()
@@ -121,7 +132,7 @@ with t2:
 
 with t3:
     with st.form("k_form_standalone"):
-        nk = st.text_input("Szybkie dodawanie kategorii")
+        nk = st.text_input("Nowa kategoria")
         if st.form_submit_button("Dodaj"):
             if nk:
                 supabase.table("kategorie").insert({"nazwa": nk}).execute()
