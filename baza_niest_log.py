@@ -53,20 +53,24 @@ if prod_data:
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
     df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
     df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
+    # Pobieramy stan minimalny z bazy - jeśli pole jest puste, ustawiamy 0
     df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 0), errors='coerce').fillna(0)
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
-    alerty = len(df[df['liczba'] < df['stan_minimalny']])
-    c3.metric("⚠️ Alerty", f"{alerty} poz.")
+    
+    # DYNAMICZNY ALERT: Sprawdza czy stan jest niższy niż indywidualnie wpisane minimum
+    alerty_df = df[df['liczba'] < df['stan_minimalny']]
+    c3.metric("⚠️ Alerty", f"{len(alerty_df)} poz.")
     c4.metric("📂 Kategorie", len(kat_data))
 
     col_l, col_r = st.columns([1, 1.5])
     with col_l:
         st.plotly_chart(px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii"), use_container_width=True)
     with col_r:
-        st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Minimum"), use_container_width=True)
+        # Wykres pokazuje teraz Twoje minimum obok realnego stanu
+        st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Twoje Minimum"), use_container_width=True)
 
     st.subheader("📋 Lista Produktów")
     st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
@@ -81,11 +85,13 @@ t1, t2, t3 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie"])
 with t1:
     st.subheader("Dodaj Nowy Produkt")
     
-    # PARAMETR clear_on_submit=True czyści wszystko w momencie kliknięcia przycisku
     with st.form("p_form", clear_on_submit=True):
         n = st.text_input("Nazwa produktu")
         q = st.number_input("Ilość obecna", min_value=0, step=1, value=0)
-        min_q = st.number_input("Ilość minimalna (Alert)", min_value=0, step=1, value=5)
+        
+        # TUTAJ UŻYTKOWNIK WPISUJE WŁASNĄ WARTOŚĆ MINIMALNĄ
+        min_q = st.number_input("Własna wartość minimalna (Alert poniżej tej liczby)", min_value=0, step=1, value=0)
+        
         p = st.number_input("Cena", min_value=0.0, step=0.1, value=0.0)
         
         kat_options = [k['nazwa'] for k in kat_data]
@@ -96,7 +102,7 @@ with t1:
         
         if st.form_submit_button("Zapisz Produkt"):
             if not n:
-                st.warning("Musisz podać nazwę produktu!")
+                st.warning("Podaj nazwę produktu!")
             else:
                 try:
                     final_kat_id = None
@@ -105,17 +111,21 @@ with t1:
                             new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
                             final_kat_id = new_k_res.data[0]['id']
                         else:
-                            st.error("Wpisz nazwę dla nowej kategorii!")
+                            st.error("Wpisz nazwę nowej kategorii!")
                             st.stop()
                     else:
                         final_kat_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
                     
+                    # Zapisujemy Twoją wartość minimalną do bazy
                     supabase.table("produkty").insert({
-                        "nazwa": n, "liczba": q, "stan_minimalny": min_q, 
-                        "cena": p, "kategoria_id": final_kat_id
+                        "nazwa": n, 
+                        "liczba": q, 
+                        "stan_minimalny": min_q, 
+                        "cena": p, 
+                        "kategoria_id": final_kat_id
                     }).execute()
                     
-                    st.toast(f"Pomyślnie dodano: {n}", icon='✅')
+                    st.toast(f"Dodano: {n} (Min: {min_q})", icon='✅')
                     st.rerun()
                 except Exception as e:
                     st.error(f"Błąd bazy: {e}")
@@ -123,18 +133,18 @@ with t1:
 with t2:
     if prod_data:
         with st.form("delivery_form", clear_on_submit=True):
-            p_name = st.selectbox("Wybierz produkt", options=[p['nazwa'] for p in prod_data])
+            p_name = st.selectbox("Produkt", options=[p['nazwa'] for p in prod_data])
             amount = st.number_input("Dodaj ilość", min_value=1, step=1, value=1)
             if st.form_submit_button("Aktualizuj stan"):
                 row = next(item for item in prod_data if item["nazwa"] == p_name)
                 supabase.table("produkty").update({"liczba": int(row['liczba']) + amount}).eq("id", row['id']).execute()
-                st.toast("Stan magazynowy zaktualizowany!", icon='🚚')
+                st.toast("Zaktualizowano!", icon='🚚')
                 st.rerun()
 
 with t3:
     with st.form("k_form_standalone", clear_on_submit=True):
-        nk = st.text_input("Szybkie dodawanie kategorii")
-        if st.form_submit_button("Dodaj"):
+        nk = st.text_input("Dodaj nową kategorię")
+        if st.form_submit_button("Zapisz kategorię"):
             if nk:
                 supabase.table("kategorie").insert({"nazwa": nk}).execute()
                 st.toast(f"Dodano kategorię: {nk}", icon='📂')
