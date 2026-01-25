@@ -5,3 +5,4 @@ plotly
 matplotlib
 xlsxwriter
 matplotlib
+fpdf2
