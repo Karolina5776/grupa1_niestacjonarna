@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
+from fpdf import FPDF
 
 # 1. KONFIGURACJA POŁĄCZENIA
 url = st.secrets["supabase_url"]
@@ -30,6 +31,7 @@ st.markdown("""
     [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #1E90FF !important; }
     .stExpander { background-color: rgba(255, 255, 255, 0.9) !important; border: 1px solid #1E90FF !important; }
     button[data-baseweb="tab"] p { color: #1E90FF !important; }
+    th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -76,6 +78,34 @@ st.divider()
 
 t1, t2, t3, t4 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
 
+# Funkcja generująca PDF
+def create_pdf(data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, "LISTA ZAKUPOW - MAGAZYN", ln=True, align="C")
+    pdf.ln(10)
+    
+    # Nagłówki tabeli
+    pdf.set_font("helvetica", "B", 10)
+    cols = ["Produkt", "Obecnie", "Minimum", "Do kupienia"]
+    col_widths = [80, 30, 30, 40]
+    
+    for i, col in enumerate(cols):
+        pdf.cell(col_widths[i], 10, col, border=1, align="C")
+    pdf.ln()
+    
+    # Dane
+    pdf.set_font("helvetica", "", 10)
+    for index, row in data.iterrows():
+        pdf.cell(80, 10, str(row['Produkt']), border=1)
+        pdf.cell(30, 10, str(int(row['Obecnie'])), border=1, align="C")
+        pdf.cell(30, 10, str(int(row['Minimum'])), border=1, align="C")
+        pdf.cell(40, 10, str(int(row['Sugerowany zakup'])), border=1, align="C")
+        pdf.ln()
+    
+    return pdf.output()
+
 with t1:
     st.subheader("Dodaj Nowy Produkt")
     with st.form("p_form", clear_on_submit=True):
@@ -119,7 +149,6 @@ with t3:
                 supabase.table("kategorie").insert({"nazwa": nk}).execute()
                 st.rerun()
 
-# --- ZAKTUALIZOWANA ZAKŁADKA Z WYŚRODKOWANIEM ---
 with t4:
     st.subheader("🛒 Lista zakupów")
     if prod_data:
@@ -129,24 +158,17 @@ with t4:
         if not zamowienia_df.empty:
             zamowienia_df.columns = ['Produkt', 'Kategoria', 'Obecnie', 'Minimum', 'Sugerowany zakup']
             
-            # WYŚRODKOWANIE KOLUMN (Obecnie, Minimum, Sugerowany zakup)
-            styled_df = zamowienia_df.style.set_properties(**{
-                'text-align': 'center'
-            }, subset=['Obecnie', 'Minimum', 'Sugerowany zakup'])
-            
-            # Wymuszenie wyśrodkowania nagłówków (CSS)
-            st.markdown("""
-                <style>
-                th { text-align: center !important; }
-                </style>
-                """, unsafe_allow_html=True)
-            
+            styled_df = zamowienia_df.style.set_properties(**{'text-align': 'center'}, subset=['Obecnie', 'Minimum', 'Sugerowany zakup'])
             st.warning(f"Produkty do uzupełnienia: {len(zamowienia_df)}")
-            
-            # Wyświetlamy jako dataframe (pozwala na interakcję i zachowuje style)
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
-            csv = zamowienia_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Pobierz listę zakupów", csv, "zamowienie.csv", "text/csv")
+            # PRZYCISK PDF
+            pdf_bytes = create_pdf(zamowienia_df)
+            st.download_button(
+                label="📥 Pobierz listę zakupów (PDF)",
+                data=pdf_bytes,
+                file_name="zamowienie_magazyn.pdf",
+                mime="application/pdf"
+            )
         else:
             st.success("Wszystkie stany w normie! 🎉")
