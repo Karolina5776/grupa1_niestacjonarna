@@ -38,7 +38,6 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #1E90FF !important; }
     button[data-baseweb="tab"] p { color: #1E90FF !important; }
-    th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -59,123 +58,137 @@ st.markdown("---")
 if prod_data:
     df = pd.DataFrame(prod_data)
     df['kategoria_nazwa'] = df['kategorie'].apply(lambda x: x['nazwa'] if x else 'Brak')
-    df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0)
+    df['liczba'] = pd.to_numeric(df['liczba'], errors='coerce').fillna(0).astype(int)
+    df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 0), errors='coerce').fillna(0).astype(int)
     df['cena'] = pd.to_numeric(df['cena'], errors='coerce').fillna(0)
-    df['stan_minimalny'] = pd.to_numeric(df.get('stan_minimalny', 0), errors='coerce').fillna(0)
     
+    # Statystyki
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📦 Suma Produktów", f"{int(df['liczba'].sum())} szt.")
+    c1.metric("📦 Suma Produktów", f"{df['liczba'].sum()} szt.")
     c2.metric("💰 Wartość", f"{round((df['liczba'] * df['cena']).sum(), 2)} zł")
     braki_df = df[df['liczba'] < df['stan_minimalny']].copy()
     c3.metric("⚠️ Alerty", f"{len(braki_df)} poz.")
     c4.metric("📂 Kategorie", len(kat_data))
 
+    # --- EDYTOWALNA LISTA PRODUKTÓW ---
+    st.subheader("📋 Edytowalna Lista Produktów (Zmień ilość i kliknij obok)")
+    
+    # Wybieramy tylko potrzebne kolumny do edycji
+    edited_df = st.data_editor(
+        df[['id', 'nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']],
+        column_config={
+            "id": None, # Ukrywamy ID
+            "nazwa": st.column_config.TextColumn("Produkt", disabled=True),
+            "kategoria_nazwa": st.column_config.TextColumn("Kategoria", disabled=True),
+            "liczba": st.column_config.NumberColumn("Ilość", min_value=0, step=1),
+            "stan_minimalny": st.column_config.NumberColumn("Minimum", min_value=0, step=1),
+            "cena": st.column_config.NumberColumn("Cena (zł)", format="%.2f")
+        },
+        use_container_width=True,
+        hide_index=True,
+        key="prod_editor"
+    )
+
+    # LOGIKA ZAPISU ZMIAN Z EDYTORA
+    if not edited_df.equals(df[['id', 'nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']]):
+        for index, row in edited_df.iterrows():
+            orig_row = df[df['id'] == row['id']].iloc[0]
+            # Sprawdzamy czy zaszła zmiana w którymś z pól
+            if (row['liczba'] != orig_row['liczba'] or 
+                row['stan_minimalny'] != orig_row['stan_minimalny'] or 
+                row['cena'] != orig_row['cena']):
+                try:
+                    supabase.table("produkty").update({
+                        "liczba": int(row['liczba']),
+                        "stan_minimalny": int(row['stan_minimalny']),
+                        "cena": float(row['cena'])
+                    }).eq("id", row['id']).execute()
+                    st.success(f"Zaktualizowano: {row['nazwa']}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Błąd zapisu: {e}")
+
+    # Wykresy poniżej
+    st.divider()
     col_l, col_r = st.columns([1, 1.5])
     with col_l:
         st.plotly_chart(px.pie(df, values='liczba', names='kategoria_nazwa', hole=0.4, title="Udział kategorii"), use_container_width=True)
     with col_r:
         st.plotly_chart(px.bar(df, x='nazwa', y=['liczba', 'stan_minimalny'], barmode='group', title="Stan obecny vs Minimum"), use_container_width=True)
 
-    st.subheader("📋 Lista Produktów")
-    st.dataframe(df[['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'cena']], use_container_width=True)
 else:
     st.info("Magazyn jest obecnie pusty.")
 
 st.divider()
 
-t1, t2, t3, t4 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
+t1, t2, t3, t4 = st.tabs(["🆕 Dodaj Produkt", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
 
-# --- POPRAWIONA FUNKCJA GENERUJĄCA PDF ---
 def create_pdf(data):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "LISTA ZAKUPOW - MAGAZYN", ln=True, align="C")
     pdf.ln(10)
-    
     pdf.set_font("helvetica", "B", 10)
     cols = ["Produkt", "Obecnie", "Minimum", "Do kupienia"]
     col_widths = [80, 30, 30, 40]
     for i, col in enumerate(cols):
         pdf.cell(col_widths[i], 10, col, border=1, align="C")
     pdf.ln()
-    
     pdf.set_font("helvetica", "", 10)
     for index, row in data.iterrows():
-        oczyszczona_nazwa = usun_polskie_znaki(str(row['Produkt']))
-        pdf.cell(80, 10, oczyszczona_nazwa, border=1)
+        n = usun_polskie_znaki(str(row['Produkt']))
+        pdf.cell(80, 10, n, border=1)
         pdf.cell(30, 10, str(int(row['Obecnie'])), border=1, align="C")
         pdf.cell(30, 10, str(int(row['Minimum'])), border=1, align="C")
         pdf.cell(40, 10, str(int(row['Sugerowany zakup'])), border=1, align="C")
         pdf.ln()
-    
-    # KLUCZOWA ZMIANA: encode('latin-1') zamienia wynik na bajty akceptowane przez st.download_button
     return bytes(pdf.output())
 
 with t1:
-    st.subheader("Dodaj Nowy Produkt")
+    st.subheader("Nowy Produkt")
     with st.form("p_form", clear_on_submit=True):
-        n = st.text_input("Nazwa produktu")
-        q = st.number_input("Ilość obecna", min_value=0, step=1, value=0)
-        min_q = st.number_input("Ilość minimalna", min_value=0, step=1, value=0)
-        p = st.number_input("Cena", min_value=0.0, step=0.1, value=0.0)
-        kat_options = [k['nazwa'] for k in kat_data] + ["+ Dodaj nową kategorię..."]
-        k_sel = st.selectbox("Wybierz kategorię", options=kat_options)
-        new_kat_input = st.text_input("Nazwa nowej kategorii (opcjonalnie)")
-        
-        if st.form_submit_button("Zapisz Produkt"):
+        n = st.text_input("Nazwa")
+        q = st.number_input("Ilość", min_value=0, value=0)
+        min_q = st.number_input("Minimum", min_value=0, value=0)
+        p = st.number_input("Cena", min_value=0.0, value=0.0)
+        k_options = [k['nazwa'] for k in kat_data] + ["+ Dodaj nową kategorię..."]
+        k_sel = st.selectbox("Kategoria", options=k_options)
+        new_k = st.text_input("Nazwa nowej kategorii")
+        if st.form_submit_button("Zapisz"):
             if n:
                 try:
                     if k_sel == "+ Dodaj nową kategorię...":
-                        new_k_res = supabase.table("kategorie").insert({"nazwa": new_kat_input}).execute()
-                        f_id = new_k_res.data[0]['id']
+                        res = supabase.table("kategorie").insert({"nazwa": new_k}).execute()
+                        f_id = res.data[0]['id']
                     else:
                         f_id = next(k['id'] for k in kat_data if k['nazwa'] == k_sel)
                     supabase.table("produkty").insert({"nazwa": n, "liczba": q, "stan_minimalny": min_q, "cena": p, "kategoria_id": f_id}).execute()
-                    st.toast(f"Dodano: {n}", icon='✅')
                     st.rerun()
-                except Exception as e: st.error(f"Błąd: {e}")
+                except Exception as e: st.error(e)
 
 with t2:
     if prod_data:
-        with st.form("deliv_f", clear_on_submit=True):
-            p_name = st.selectbox("Produkt", options=[p['nazwa'] for p in prod_data])
-            amount = st.number_input("Ilość", min_value=1, step=1)
-            if st.form_submit_button("Dodaj do stanu"):
-                row = next(item for item in prod_data if item["nazwa"] == p_name)
-                supabase.table("produkty").update({"liczba": int(row['liczba']) + amount}).eq("id", row['id']).execute()
-                st.toast("Zaktualizowano!", icon='🚚')
+        with st.form("d_f", clear_on_submit=True):
+            pn = st.selectbox("Produkt", [p['nazwa'] for p in prod_data])
+            am = st.number_input("Dodaj", min_value=1)
+            if st.form_submit_button("Aktualizuj"):
+                row = next(item for item in prod_data if item["nazwa"] == pn)
+                supabase.table("produkty").update({"liczba": int(row['liczba']) + am}).eq("id", row['id']).execute()
                 st.rerun()
 
 with t3:
     with st.form("k_f", clear_on_submit=True):
         nk = st.text_input("Nowa kategoria")
         if st.form_submit_button("Zapisz"):
-            if nk:
-                supabase.table("kategorie").insert({"nazwa": nk}).execute()
-                st.rerun()
+            if nk: supabase.table("kategorie").insert({"nazwa": nk}).execute(); st.rerun()
 
 with t4:
-    st.subheader("🛒 Lista zakupów")
     if prod_data:
         df['Do kupienia'] = df['stan_minimalny'] - df['liczba']
-        zamowienia_df = df[df['Do kupienia'] > 0][['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'Do kupienia']].copy()
-        
-        if not zamowienia_df.empty:
-            zamowienia_df.columns = ['Produkt', 'Kategoria', 'Obecnie', 'Minimum', 'Sugerowany zakup']
-            st.warning(f"Produkty do uzupełnienia: {len(zamowienia_df)}")
-            st.dataframe(zamowienia_df.style.set_properties(**{'text-align': 'center'}, subset=['Obecnie', 'Minimum', 'Sugerowany zakup']), use_container_width=True, hide_index=True)
-            
-            # POPRAWKA PRZYCISKU:
-            try:
-                pdf_output = create_pdf(zamowienia_df)
-                st.download_button(
-                    label="📥 Pobierz listę zakupów (PDF)", 
-                    data=pdf_output, 
-                    file_name="zamowienie.pdf", 
-                    mime="application/pdf"
-                )
-            except Exception as e:
-                st.error(f"Błąd podczas tworzenia PDF: {e}")
-        else:
-            st.success("Wszystkie stany w normie! 🎉")
+        z_df = df[df['Do kupienia'] > 0][['nazwa', 'kategoria_nazwa', 'liczba', 'stan_minimalny', 'Do kupienia']].copy()
+        if not z_df.empty:
+            z_df.columns = ['Produkt', 'Kategoria', 'Obecnie', 'Minimum', 'Sugerowany zakup']
+            st.dataframe(z_df, hide_index=True)
+            st.download_button("📥 Pobierz PDF", create_pdf(z_df), "zamowienie.pdf", "application/pdf")
+        else: st.success("Wszystko OK!")
