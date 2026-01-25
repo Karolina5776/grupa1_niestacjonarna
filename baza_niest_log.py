@@ -11,6 +11,14 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
+# --- FUNKCJA USUWAJĄCA POLSKIE ZNAKI (Aby PDF się nie zawieszał) ---
+def usun_polskie_znaki(tekst):
+    znaki = {'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+             'Ą': 'A', 'Ć': 'C', 'Ę': 'E', 'Ł': 'L', 'Ń': 'N', 'Ó': 'O', 'Ś': 'S', 'Ź': 'Z', 'Ż': 'Z'}
+    for polski, lacinski in znaki.items():
+        tekst = tekst.replace(polski, lacinski)
+    return tekst
+
 # --- STYLE CSS ---
 st.markdown("""
     <style>
@@ -29,7 +37,6 @@ st.markdown("""
         padding: 15px; border-radius: 10px; border: 2px solid #1E90FF;
     }
     [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #1E90FF !important; }
-    .stExpander { background-color: rgba(255, 255, 255, 0.9) !important; border: 1px solid #1E90FF !important; }
     button[data-baseweb="tab"] p { color: #1E90FF !important; }
     th { text-align: center !important; }
     </style>
@@ -78,7 +85,7 @@ st.divider()
 
 t1, t2, t3, t4 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
 
-# Funkcja generująca PDF
+# Funkcja generująca PDF bez polskich znaków (bezpieczna)
 def create_pdf(data):
     pdf = FPDF()
     pdf.add_page()
@@ -86,19 +93,19 @@ def create_pdf(data):
     pdf.cell(0, 10, "LISTA ZAKUPOW - MAGAZYN", ln=True, align="C")
     pdf.ln(10)
     
-    # Nagłówki tabeli
+    # Nagłówki
     pdf.set_font("helvetica", "B", 10)
     cols = ["Produkt", "Obecnie", "Minimum", "Do kupienia"]
     col_widths = [80, 30, 30, 40]
-    
     for i, col in enumerate(cols):
         pdf.cell(col_widths[i], 10, col, border=1, align="C")
     pdf.ln()
     
-    # Dane
+    # Dane z oczyszczaniem tekstu
     pdf.set_font("helvetica", "", 10)
     for index, row in data.iterrows():
-        pdf.cell(80, 10, str(row['Produkt']), border=1)
+        oczyszczona_nazwa = usun_polskie_znaki(str(row['Produkt']))
+        pdf.cell(80, 10, oczyszczona_nazwa, border=1)
         pdf.cell(30, 10, str(int(row['Obecnie'])), border=1, align="C")
         pdf.cell(30, 10, str(int(row['Minimum'])), border=1, align="C")
         pdf.cell(40, 10, str(int(row['Sugerowany zakup'])), border=1, align="C")
@@ -157,18 +164,11 @@ with t4:
         
         if not zamowienia_df.empty:
             zamowienia_df.columns = ['Produkt', 'Kategoria', 'Obecnie', 'Minimum', 'Sugerowany zakup']
-            
-            styled_df = zamowienia_df.style.set_properties(**{'text-align': 'center'}, subset=['Obecnie', 'Minimum', 'Sugerowany zakup'])
             st.warning(f"Produkty do uzupełnienia: {len(zamowienia_df)}")
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            st.dataframe(zamowienia_df.style.set_properties(**{'text-align': 'center'}, subset=['Obecnie', 'Minimum', 'Sugerowany zakup']), use_container_width=True, hide_index=True)
             
-            # PRZYCISK PDF
+            # GENEROWANIE PDF (Z oczyszczaniem znaków)
             pdf_bytes = create_pdf(zamowienia_df)
-            st.download_button(
-                label="📥 Pobierz listę zakupów (PDF)",
-                data=pdf_bytes,
-                file_name="zamowienie_magazyn.pdf",
-                mime="application/pdf"
-            )
+            st.download_button(label="📥 Pobierz listę zakupów (PDF)", data=pdf_bytes, file_name="zamowienie.pdf", mime="application/pdf")
         else:
             st.success("Wszystkie stany w normie! 🎉")
