@@ -11,7 +11,7 @@ supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Magazyn Dashboard Pro", layout="wide")
 
-# --- FUNKCJA USUWAJĄCA POLSKIE ZNAKI (Aby PDF się nie zawieszał) ---
+# --- FUNKCJA USUWAJĄCA POLSKIE ZNAKI ---
 def usun_polskie_znaki(tekst):
     znaki = {'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
              'Ą': 'A', 'Ć': 'C', 'Ę': 'E', 'Ł': 'L', 'Ń': 'N', 'Ó': 'O', 'Ś': 'S', 'Ź': 'Z', 'Ż': 'Z'}
@@ -85,7 +85,7 @@ st.divider()
 
 t1, t2, t3, t4 = st.tabs(["🆕 Produkty", "🚚 Dostawa", "📂 Kategorie", "🛒 Do zamówienia"])
 
-# Funkcja generująca PDF bez polskich znaków (bezpieczna)
+# --- POPRAWIONA FUNKCJA GENERUJĄCA PDF ---
 def create_pdf(data):
     pdf = FPDF()
     pdf.add_page()
@@ -93,7 +93,6 @@ def create_pdf(data):
     pdf.cell(0, 10, "LISTA ZAKUPOW - MAGAZYN", ln=True, align="C")
     pdf.ln(10)
     
-    # Nagłówki
     pdf.set_font("helvetica", "B", 10)
     cols = ["Produkt", "Obecnie", "Minimum", "Do kupienia"]
     col_widths = [80, 30, 30, 40]
@@ -101,7 +100,6 @@ def create_pdf(data):
         pdf.cell(col_widths[i], 10, col, border=1, align="C")
     pdf.ln()
     
-    # Dane z oczyszczaniem tekstu
     pdf.set_font("helvetica", "", 10)
     for index, row in data.iterrows():
         oczyszczona_nazwa = usun_polskie_znaki(str(row['Produkt']))
@@ -111,7 +109,8 @@ def create_pdf(data):
         pdf.cell(40, 10, str(int(row['Sugerowany zakup'])), border=1, align="C")
         pdf.ln()
     
-    return pdf.output()
+    # KLUCZOWA ZMIANA: encode('latin-1') zamienia wynik na bajty akceptowane przez st.download_button
+    return bytes(pdf.output())
 
 with t1:
     st.subheader("Dodaj Nowy Produkt")
@@ -167,8 +166,16 @@ with t4:
             st.warning(f"Produkty do uzupełnienia: {len(zamowienia_df)}")
             st.dataframe(zamowienia_df.style.set_properties(**{'text-align': 'center'}, subset=['Obecnie', 'Minimum', 'Sugerowany zakup']), use_container_width=True, hide_index=True)
             
-            # GENEROWANIE PDF (Z oczyszczaniem znaków)
-            pdf_bytes = create_pdf(zamowienia_df)
-            st.download_button(label="📥 Pobierz listę zakupów (PDF)", data=pdf_bytes, file_name="zamowienie.pdf", mime="application/pdf")
+            # POPRAWKA PRZYCISKU:
+            try:
+                pdf_output = create_pdf(zamowienia_df)
+                st.download_button(
+                    label="📥 Pobierz listę zakupów (PDF)", 
+                    data=pdf_output, 
+                    file_name="zamowienie.pdf", 
+                    mime="application/pdf"
+                )
+            except Exception as e:
+                st.error(f"Błąd podczas tworzenia PDF: {e}")
         else:
             st.success("Wszystkie stany w normie! 🎉")
